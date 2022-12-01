@@ -1,0 +1,575 @@
+---
+title: "CS152ProjectCodeDavis"
+output: html_document
+---
+
+```{r preparing data}
+
+setwd('/Users/nathanieldavis/Documents/tufts/2021fall/cs152/project/data/rna-seq')
+
+male_counts = read.delim("GSE146644_Count_Male.txt")
+female_counts = read.delim("GSE146644_Count_Female.txt")
+male_counts = male_counts[-1:-4,]
+counts = cbind(male_counts,female_counts[,-1:-1])
+coldata = colnames(counts)[-1:-1]
+condition = c('control','control','control','control','runner','runner','runner','runner','control','control','control','control','runner','runner','runner','runner')
+coldata = cbind(matrix(coldata),condition)
+sex = c('male','male','male','male','male','male','male','male','female','female','female','female','female','female','female','female')
+line = c('C1','C2','C3','C4','R1','R2','R3','R4','C1','C2','C3','C4','R1','R2','R3','R4')
+coldata = cbind(coldata,sex)
+coldata = cbind(coldata,line)
+coldata <- as.data.frame(coldata)
+coldata$condition <- factor(coldata$condition)
+coldata$sex <- factor(coldata$sex)
+coldata$line <- factor(coldata$line)
+rownames(coldata)=coldata[,1]
+coldata <- coldata[,-1:-1]
+cts_df = as.data.frame(counts)
+cts_df = cts_df[!grepl("-Mar",cts_df$X),]
+cts_df = cts_df[!grepl("-Sep",cts_df$X),]
+rownames(cts_df)=cts_df[,1]
+cts_df = cts_df[,-1:-1]
+
+```
+
+
+```{r dif exp analysis}
+
+install.packages('DESeq2')
+dds <- DESeqDataSetFromMatrix(countData = cts_df,
+                              colData = coldata,
+                              design = ~ condition)
+dds <- DESeq(dds)
+res = results(dds,alpha=0.05)
+
+summary(res)
+
+dds2 <- DESeqDataSetFromMatrix(countData = cts_df,
+                              colData = coldata,
+                              design = ~ sex + condition)
+dds2 <- DESeq(dds2)
+res2 = results(dds2,alpha=0.05)
+
+summary(res2)
+
+row.names(res[order(res$padj)[1:29],])
+
+
+```
+
+```{r p value histogram}
+
+library('ggplot2')
+
+ggplot(as(res, "data.frame"), aes(x = pvalue)) + geom_histogram(binwidth = 0.01, fill = "Royalblue", boundary = 0)
+ggplot(as(res2, "data.frame"), aes(x = pvalue)) + geom_histogram(binwidth = 0.01, fill = "Royalblue", boundary = 0)
+plotMA(dds)
+
+```
+
+```{r comparing one- and two-factor models}
+
+compareRes = table('simple analysis' = res$padj < 0.05, 'two factor' = res2$padj < 0.05)
+addmargins(compareRes)
+
+```
+```{r heatmap}
+
+nudge <- position_nudge(y = 0.5)
+
+cts_rlog = rlogTransformation(dds)
+cts_samples=colnames(cts_rlog)
+plotPCA(cts_rlog,intgroup=c("condition")) + geom_text(aes(label = cts_samples), position = position_nudge(y = 1.1), size = 3)
+
+percentVar <- round(100 * attr(pcaData, "percentVar")) 
+ggplot(pcaData, aes(x = PC1, y = PC2, color = factor(condition), shape = factor(sex))) + 
+geom_point(size =3, aes(fill=factor(condition), alpha=as.character(sex))) + 
+geom_point(size =3) + 
+scale_shape_manual(values=c(21,22)) + 
+scale_alpha_manual(values=c("F"=0, "M"=1)) + 
+xlab(paste0("PC1: ", percentVar[1], "% variance")) + 
+ylab(paste0("PC2: ", percentVar[2], "% variance")) + 
+ggtitle("PCA of all genes, no covariate adjusted")
+
+cts_rlog_DE <- rlogTransformation(dds[row.names(res[order(res$padj)[1:29],])])
+cts_samples_DE=colnames(cts_rlog_DE)
+plotPCA(cts_rlog_DE,intgroup=c("condition")) + geom_text(aes(label = cts_samples_DE),position = nudge)
+
+cts_rlog_min_cf4 = rlogTransformation(dds[,colnames(dds)!='Cont_F4'])
+cts_samples_min_cf4 = colnames(cts_rlog_min_cf4)
+plotPCA(cts_rlog_min_cf4,intgroup=c("condition")) + geom_text(aes(label = cts_samples_min_cf4),position = nudge)
+
+```
+
+```{r dif exp analysis removing cont_f4}
+
+cts_min_cf4 <- cts_df[,-11:-11]
+coldata_min_cf4 <- coldata[-11:-11,]
+
+dds_min_cf4 <- DESeqDataSetFromMatrix(countData = cts_min_cf4,
+                              colData = coldata_min_cf4,
+                              design = ~ condition)
+dds_min_cf4 <- DESeq(dds_min_cf4)
+res_min_cf4 = results(dds_min_cf4,alpha=0.05)
+
+summary(res_min_cf4)
+
+dds2_min_cf4 <- DESeqDataSetFromMatrix(countData = cts_min_cf4,
+                              colData = coldata_min_cf4,
+                              design = ~ sex + condition)
+dds2_min_cf4 <- DESeq(dds2_min_cf4)
+res2_min_cf4 = results(dds2_min_cf4,alpha=0.05)
+
+summary(res2_min_cf4)
+
+ggplot(as(res_min_cf4, "data.frame"), aes(x = pvalue)) + geom_histogram(binwidth = 0.01, fill = "Royalblue", boundary = 0)
+hgA <- ggplot(as(res2_min_cf4, "data.frame"), aes(x = pvalue)) + geom_histogram(binwidth = 0.01, fill = "Royalblue", boundary = 0)
+
+hgB <- ggplot(as(res2_batch_min_cf4, "data.frame"), aes(x = pvalue)) + geom_histogram(binwidth = 0.01, fill = "Royalblue", boundary = 0)
+
+c1 <- rgb(173,216,230,max = 255, alpha = 80, names = "lt.blue")
+c2 <- rgb(255,192,203, max = 255, alpha = 80, names = "lt.pink")
+
+plot(hgA, col = c1)
+plot(hgB, col = c2, add = TRUE)
+
+res2_batch_min_cf4$pvalue
+
+
+hist_data <- rbind(data.frame('pvalue' = res2_min_cf4$pvalue,'state' = rep('before', length(res2_batch_min_cf4$pvalue))), data.frame('pvalue' = res2_batch_min_cf4$pvalue,'state' = rep('after',length(res2_batch_min_cf4$pvalue))))
+
+
+ggplot(hist_data, aes(x=pvalue, fill=state)) + geom_histogram(alpha=0.5, position="identity", binwidth = 0.01)
+```
+
+```{r investigating cont_f4}
+
+library('tidyverse')
+
+long_counts <- pivot_longer(counts, cols = Cont1:HR_F8, names_to = 'line', values_to = 'counts')
+
+ggplot(long_counts[,-1:-1],aes(x=line,y=counts))+geom_boxplot() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggplot(as(res_min_cf4, "data.frame"), aes(x = pvalue)) + geom_histogram(binwidth = 0.01, fill = "Royalblue", boundary = 0)
+
+ggplot(as(res2_min_cf4, "data.frame"), aes(x = pvalue)) + geom_histogram(binwidth = 0.01, fill = "Royalblue", boundary = 0)
+
+plotMA(dds_min_cf4)
+plotMA(dds2_min_cf4)
+
+
+```
+
+
+```{r comparing one- and two-factor models minus cf4}
+
+compareRes = table('simple analysis' = res_min_cf4$padj < 0.05, 'two factor' = res2_min_cf4$padj < 0.05)
+addmargins(compareRes)
+
+```
+
+```{r heatmap}
+
+library("pheatmap")
+mat <- assay(cts_rlog[row.names(res[order(res$padj)[1:29],])])
+
+colnamesdf <- as.data.frame(colData(cts_rlog)[, "condition"],row.names=row.names(colData(cts_rlog)),col.names = 'condition')
+
+colnames(colnamesdf) <- 'condition'
+
+select = order(rowMeans(assay(cts_rlog)), decreasing = TRUE)[1:32]
+pheatmap(mat, scale = "row", annotation_col = colnamesdf, fontsize_row = 7)
+
+```
+
+```{r heatmap min cf4}
+
+library("pheatmap")
+mat <- assay(cts_rlog_min_cf4[row.names(res_min_cf4[order(res_min_cf4$padj)[1:33],])])
+
+colnamesdf <- as.data.frame(colData(cts_rlog_min_cf4)[, "condition"],row.names=row.names(colData(cts_rlog_min_cf4)),col.names = 'condition')
+
+colnames(colnamesdf) <- 'condition'
+
+select = order(rowMeans(assay(cts_rlog_min_cf4)), decreasing = TRUE)[1:33]
+pheatmap(mat, scale = "row", annotation_col = colnamesdf, fontsize_row = 7)
+
+```
+
+```{r dif exp analysis with outliers}
+dds_outliers <- DESeqDataSetFromMatrix(countData = cts_df,
+                              colData = coldata,
+                              design = ~ condition)
+dds_outliers <- DESeq(dds_outliers, minReplicatesForReplace = Inf)
+
+res_outliers = results(dds_outliers,alpha=0.05,cooksCutoff = Inf)
+
+summary(res_outliers)
+
+hist(res_outliers$pvalue)
+```
+
+```{r heatmap}
+
+cts_rlog_outliers = rlogTransformation(dds_outliers)
+cts_samples_outliers=colnames(cts_rlog_outliers)
+plotPCA(cts_rlog_outliers,intgroup=c("condition")) + geom_text(aes(label = cts_samples_outliers))
+
+mat_outliers <- assay(cts_rlog_outliers[row.names(res_outliers[order(res_outliers$padj)[1:39],])])
+
+colnamesdf_outliers <- as.data.frame(colData(cts_rlog_outliers)[, "condition"],row.names=row.names(colData(cts_rlog_outliers)),col.names = 'condition')
+
+colnames(colnamesdf_outliers) <- 'condition'
+
+select = order(rowMeans(assay(cts_rlog_outliers)), decreasing = TRUE)[1:32]
+pheatmap(mat_outliers, scale = "row", annotation_col = colnamesdf_outliers, fontsize_row = 7)
+
+```
+
+```{r deseq with batch effects and outliers removed}
+
+dds_min_cf4 <- DESeqDataSetFromMatrix(countData = cts_min_cf4,
+                              colData = coldata_min_cf4,
+                              design = ~ condition)
+dds_min_cf4 <- DESeq(dds_min_cf4)
+res_min_cf4 = results(dds_min_cf4,alpha=0.05)
+
+summary(res_min_cf4)
+
+row.names(res_min_cf4[order(res_min_cf4$padj),][1:33,])
+
+dds_min_cf4_sex <- DESeqDataSetFromMatrix(countData = cts_min_cf4,
+                              colData = coldata_min_cf4,
+                              design = ~ sex + condition)
+dds_min_cf4_sex <- DESeq(dds_min_cf4_sex)
+res_min_cf4_sex = results(dds_min_cf4_sex,alpha=0.05)
+
+summary(res_min_cf4_sex)
+
+```
+
+```{r comparing one- and two-factor models minus cf4}
+
+compareRes = table('simple analysis' = res_min_cf4$padj < 0.05, 'two factor' = res2_min_cf4$padj < 0.05)
+addmargins(compareRes)
+
+```
+
+```{r surrogate variable analysis}
+
+dds$batch <- factor(c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16))
+dds <- estimateSizeFactors(dds)
+norm.cts <- counts(dds, normalized=TRUE)
+mm <- model.matrix(~ condition, colData(dds))
+mm0 <- model.matrix(~ 1, colData(dds))
+norm.cts <- norm.cts[rowSums(norm.cts) > 0,]
+fit <- svaseq(norm.cts, mod=mm, mod0=mm0, n.sv=2)
+
+#library(rafalib)
+bigpar()
+dds$condition.int <- as.integer(dds$condition)
+plot(fit$sv[,1:2], col=dds$batch, pch=dds$condition.int, cex=2,
+     xlab="SV1", ylab="SV2")
+legend("top", levels(dds$batch), pch=16,
+       col=1:3, cex=.8, ncol=3, title="batch")
+
+coldata$sv1 <- fit$sv[,1]
+coldata$sv2 <- fit$sv[,2]
+
+dds <- DESeqDataSetFromMatrix(countData = cts_df,
+                              colData = coldata,
+                              design = ~ sex + sv1 + sv2 + condition)
+dds <- DESeq(dds)
+res = results(dds,alpha=0.05)
+
+summary(res)
+library(ggplot2)
+ggplot(as(res, "data.frame"), aes(x = pvalue)) + geom_histogram(binwidth = 0.01, fill = "Royalblue", boundary = 0)
+
+row.names(res[order(res$padj)[1:97],])
+
+grep('Vmn', row.names(res[order(res$padj)[1:97],]), value=TRUE)
+```
+```{r dif exp analysis removing individual samples}
+
+x <- c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16)
+
+for (val in x) {
+  cts_min_samp <- cts_df[,-val:-val]
+  coldata_min_samp <- coldata[-val:-val,]
+  dds_min_samp <- DESeqDataSetFromMatrix(countData = cts_min_samp, colData = coldata_min_samp, design = ~ sex + condition)
+  dds_min_samp <- DESeq(dds_min_samp)
+  res_min_samp = results(dds_min_samp,alpha=0.05)
+  print(ggplot(as(res_min_samp, "data.frame"), aes(x = pvalue)) + geom_histogram(binwidth = 0.01, fill = "Royalblue", boundary = 0))
+}
+
+```
+
+```{r R1 sample batch effect controlled for}
+
+coldata$batch <- c(0,0,2,0,1,0,0,0,0,0,2,0,1,0,0,0)
+coldata$batch <- factor(coldata$batch)
+
+dds_r1_batch <- DESeqDataSetFromMatrix(countData = cts_df,
+                              colData = coldata,
+                              design = ~ batch + condition)
+dds_r1_batch <- DESeq(dds_r1_batch)
+res_r1_batch = results(dds_r1_batch,alpha=0.05)
+
+summary(res_r1_batch)
+
+dds2_r1_batch <- DESeqDataSetFromMatrix(countData = cts_df,
+                              colData = coldata,
+                              design = ~ sex + batch + condition)
+dds2_r1_batch <- DESeq(dds2_r1_batch)
+res2_r1_batch = results(dds2_r1_batch,alpha=0.05)
+
+summary(res_r1_batch)
+summary(res2_r1_batch)
+
+ggplot(as(res_r1_batch, "data.frame"), aes(x = pvalue)) + geom_histogram(binwidth = 0.01, fill = "Royalblue", boundary = 0)
+ggplot(as(res2_r1_batch, "data.frame"), aes(x = pvalue)) + geom_histogram(binwidth = 0.01, fill = "Royalblue", boundary = 0)
+
+nudge <- position_nudge(y = 0.5)
+cts_rlog_r1_batch = rlogTransformation(dds_r1_batch)
+cts_samples_r1_batch = colnames(cts_rlog_r1_batch)
+plotPCA(cts_rlog_r1_batch,intgroup=c("condition","batch")) + geom_text(aes(label = cts_samples_r1_batch), position = position_nudge(y = 0.5))
+
+cts2_rlog_r1_batch = rlogTransformation(dds2_r1_batch)
+cts2_samples_r1_batch = colnames(cts2_rlog_r1_batch)
+plotPCA(cts2_rlog_r1_batch,intgroup=c("condition","batch")) + geom_text(aes(label = cts2_samples_r1_batch), position = position_nudge(y = 0.5))
+
+row.names(res_r1_batch[order(res_r1_batch$padj)[1:122],])
+grep('Vmn', row.names(res_r1_batch[order(res_r1_batch$padj)[1:108],]), value=TRUE)
+grep('Vmn', row.names(res2_r1_batch[order(res2_r1_batch$padj)[1:96],]), value=TRUE)
+
+```
+```{r R1 sample batch effect - cf4 }
+
+coldata$batch <- c(0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0)
+coldata$batch <- factor(coldata$batch)
+
+dds_batch_min_cf4 <- DESeqDataSetFromMatrix(countData = cts_df[,-11:-11],
+                              colData = coldata[-11:-11,],
+                              design = ~ batch + sex)
+dds_batch_min_cf4 <- DESeq(dds_batch_min_cf4)
+res_batch_min_cf4 = results(dds_batch_min_cf4,alpha=0.05)
+
+summary(res_batch_min_cf4)
+
+dds2_batch_min_cf4 <- DESeqDataSetFromMatrix(countData = cts_df[,-11:-11],
+                              colData = coldata[-11:-11,],
+                              design = ~ sex + batch + condition)
+dds2_batch_min_cf4 <- DESeq(dds2_batch_min_cf4)
+res2_batch_min_cf4 = results(dds2_batch_min_cf4,alpha=0.05)
+
+summary(res_batch_min_cf4)
+summary(res2_batch_min_cf4)
+
+ggplot(as(res_batch_min_cf4, "data.frame"), aes(x = pvalue)) + geom_histogram(binwidth = 0.01, fill = "Royalblue", boundary = 0)
+ggplot(as(res2_batch_min_cf4, "data.frame"), aes(x = pvalue)) + geom_histogram(binwidth = 0.01, fill = "Royalblue", boundary = 0)
+
+nudge <- position_nudge(y = 0.5)
+cts_rlog_batch_min_cf4 = rlogTransformation(dds_batch_min_cf4)
+cts_samples_batch_min_cf4 = colnames(cts_rlog_batch_min_cf4)
+plotPCA(cts_rlog_batch_min_cf4,intgroup=c("condition","batch")) + geom_text(aes(label = cts_samples_batch_min_cf4), position = position_nudge(y = 0.5))
+
+cts2_rlog_batch_min_cf4 = rlogTransformation(dds2_batch_min_cf4)
+cts2_samples_batch_min_cf4 = colnames(cts2_rlog_batch_min_cf4)
+plotPCA(cts2_rlog_batch_min_cf4,intgroup=c("condition","batch")) + geom_text(aes(label = cts2_samples_batch_min_cf4), position = position_nudge(y = 0.5))
+
+row.names(res_batch_min_cf4[order(res_batch_min_cf4$padj)[1:196],])
+row.names(res2_batch_min_cf4[order(res2_batch_min_cf4$padj)[1:93],])
+res_batch_min_cf4[grep('Vmn', row.names(res_batch_min_cf4[order(res_batch_min_cf4$padj)[1:196],]), value=TRUE),]
+res2_batch_min_cf4[grep('Vmn', row.names(res_batch_min_cf4[order(res_batch_min_cf4$padj)[1:93],]), value=TRUE),]
+grep('Vmn', row.names(res2_batch_min_cf4[order(res2_batch_min_cf4$padj)[1:93],]), value=TRUE)
+
+plotMA(dds2_batch_min_cf4)
+
+res2_batch_min_cf4[order(res2_batch_min_cf4$padj)[1:93],][de_gene_list,]
+
+```
+
+```{r heatmap batch min cf4}
+
+library("pheatmap")
+mat <- assay(cts2_rlog_batch_min_cf4[row.names(res2_batch_min_cf4[order(res2_batch_min_cf4$padj)[1:93],])])
+
+colnamesdf <- as.data.frame(colData(cts2_rlog_batch_min_cf4)[, "condition"],row.names=row.names(colData(cts2_rlog_batch_min_cf4)),col.names = 'condition')
+
+colnames(colnamesdf) <- 'condition'
+
+select = order(rowMeans(assay(cts2_rlog_batch_min_cf4)), decreasing = TRUE)[1:93]
+
+jpeg(file="heatmap.jpeg", width = 1200, height = 1920)
+pheatmap(mat, scale = "row", annotation_col = colnamesdf, fontsize_row = 16, fontsize_col = 20, fontsize = 22)
+dev.off()
+```
+
+```{r GO functional enrichment analysis}
+install.packages('goseq')
+library('goseq')
+assayed.genes <- rownames(res2_batch_min_cf4)
+de.genes <- rownames(res2_batch_min_cf4)[ which(res2_batch_min_cf4$padj < 0.05) ]
+gene.vector=as.integer(assayed.genes%in%de.genes)
+names(gene.vector)=assayed.genes
+head(gene.vector)
+pwf=nullp(gene.vector,"mm9","geneSymbol")
+GO.wall=goseq(pwf,"mm9","geneSymbol")
+head(GO.wall)
+GO.samp=goseq(pwf,"mm9","geneSymbol",method="Sampling",repcnt=1000)
+head(GO.wall)
+head(GO.samp)
+plot(log10(GO.wall[,2]), log10(GO.samp[match(GO.wall[,1],GO.samp[,1]),2]),
+xlab="log10(Wallenius p-values)",ylab="log10(Sampling p-values)",
+xlim=c(-3,0))
+abline(0,1,col=3,lty=2)
+enriched.GO=GO.wall$category[p.adjust(GO.wall$over_represented_pvalue,method="BH")<.05]
+#library(GO.db)
+#for(go in enriched.GO[1:10]){
+#print(GOTERM[[go]])
+#cat("--------------------------------------\n")
+#}
+
+getGenes <- function(pwf, goterm, genome, ids){
+    gene2cat <-  getgo(rownames(pwf), genome, ids)
+    cat2gene <- split(rep(names(gene2cat), sapply(gene2cat, length)),
+                      unlist(gene2cat, use.names = FALSE))
+    out <- pwf[cat2gene[[goterm]],]
+    out <- out[out$DEgenes > 0,]
+    out
+}
+
+gene2cat <-  getgo(rownames(pwf), "mm9", "geneSymbol")
+cat2gene <- split(rep(names(gene2cat), sapply(gene2cat, length)), unlist(gene2cat, use.names = FALSE))
+
+sort(cat2gene$`GO:0004930`)
+sort(row.names(res2_batch_min_cf4[order(res2_batch_min_cf4$padj)[1:93],]))
+
+out
+
+GO.wall$category[1]
+getGenes(pwf, GO.wall$category[1], "mm9","geneSymbol")
+
+GO.wall
+
+```
+
+```{r preparing data rpkm}
+
+setwd('/Users/nathanieldavis/Documents/tufts/2021fall/cs152/project/data/rna-seq')
+male_rpkm = read.delim("GSE146644_RPKM_Male.txt")
+female_rpkm = read.delim("GSE146644_RPKM_Female.txt")
+#male_rpkm = male_rpkm[-1:-4,]
+rpkm = cbind(male_rpkm,female_rpkm[,-1:-1])
+coldata = colnames(rpkm)[-1:-1]
+condition = c('control','control','control','control','runner','runner','runner','runner','control','control','control','control','runner','runner','runner','runner')
+coldata = cbind(matrix(coldata),condition)
+sex = c('male','male','male','male','male','male','male','male','female','female','female','female','female','female','female','female')
+coldata = cbind(coldata,sex)
+coldata <- as.data.frame(coldata)
+coldata$condition <- factor(coldata$condition)
+coldata$sex <- factor(coldata$sex)
+rownames(coldata)=coldata[,1]
+coldata <- coldata[,-1:-1]
+rpkm_df = as.data.frame(rpkm)
+rpkm_df = rpkm_df[!grepl("-Mar",rpkm_df$gene_id),]
+rpkm_df = rpkm_df[!grepl("-Sep",rpkm_df$gene_id),]
+rownames(rpkm_df)=rpkm_df[,1]
+rpkm_df = rpkm_df[,-1:-1]
+
+```
+
+```{r vmn rpkm graphs}
+
+vmn_tidy_min_cf4 <- mutate(vmn_tidy_min_cf4, sample = case_when(grepl(c('Cont1','Cont_F1'),line) ~ "line1", grepl(c('Cont2','Cont_F2'),line) ~ "line2", grepl(c('Cont4','Cont_F5'),line) ~ "line4", grepl(c('Runner1','HR_F3'),line) ~ "line5",grepl(c('Runner2','HR_F6'),line) ~ "line6", grepl(c('Runner3','HR_F7'),line) ~ "line7", grepl(c('Runner4','HR_F8'),line) ~ "line8",grepl('Cont_F1',line) ~ "line1", grepl('Cont_F2',line) ~ "line2", grepl('Cont_F5',line) ~ "line4", grepl('HR_F3',line) ~ "line5",grepl('HR_F6',line) ~ "line6", grepl('HR_F7',line) ~ "line7", grepl('HR_F8',line) ~ "line8"))
+
+
+for (val in unique(de_gene_list)) {
+  plots[i] <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene== val,], mapping = aes(x = condition, y = value)) + geom_point(aes(color = condition)) + stat_summary(fun = median, geom = "crossbar", width = 0.2) + labs(title=val, y = "RPKM") + theme(plot.title = element_text(hjust = 0.5))
+  i <- i+1
+}
+
+ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene== val,], mapping = aes(x = condition, y = value)) + geom_point() + stat_summary(fun = median, geom = "crossbar", width = 0.2) + labs(title=val, y = "RPKM") + theme(plot.title = element_text(hjust = 0.5))
+
+ggplot(vmn_tidy_min_cf4, mapping = aes(x = condition, y = value)) + geom_point(aes(color = condition)) + stat_summary(fun.y = mean, geom = "crossbar", width = 0.2)
+
+p1 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Fpr3",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Fpr3", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "white",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p2 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Fpr-rs4",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Fpr-rs4", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "white",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p3 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn1r188",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn1r188", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "white",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p4 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn1r196",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn1r196", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "lightblue",colour = "lightgreen", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p5 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn1r236",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn1r236", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "lightgreen",colour = "lightgreen", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p6 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r8",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r8", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "white",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p7 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r9",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r9", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "lightgreen",colour = "lightgreen", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p8 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r11",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r11", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "lightgreen",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p9 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r13",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r13", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "white",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p10 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r14",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r14", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "lightblue",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p11 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r15",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r15", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "lightgreen",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p12 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r16",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r16", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "lightgreen",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p13 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r23",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r23", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "white",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p14 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r45",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r45", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "white",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p15 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r50",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r50", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "lightblue",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p16 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r96",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r96", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "white",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p17 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r98",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r98", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "white",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p18 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r99",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r99", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "lightgreen",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p19 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r102",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r102", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "white",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p20 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r107",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r107", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "white",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p21 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r110",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r110", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "white",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+p22 <- ggplot(vmn_tidy_min_cf4[vmn_tidy_min_cf4$gene == "Vmn2r114",], mapping = aes(x = condition, y = value)) + geom_point(size = 2) + stat_summary(fun = median, geom = "crossbar", width = 0.4, size = 0.4) + labs(title="Vmn2r114", y = 'RPKM', x='') + theme(plot.title = element_text(hjust = 0.5, size = 19, face = 'bold.italic'), axis.title = element_text(size = 17), axis.text = element_text(size = 17), panel.background = element_rect(fill = "white",colour = "lightblue", size = 0.5, linetype = "solid"), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.border = element_rect(size = 0.5, fill = NA, linetype = "solid", colour = "black"))
+
+sort(unique(nguyen_plus_de_list))
+nguyen_gene_list
+de_gene_list
+
+ggplot() + scale_fill_identity(name = 'the fill', guide = 'legend',labels = c('m1'))
+
+library(ggpubr)
+
+jpeg(file="rpkm.jpeg", width = 1200, height = 1600)
+ggarrange(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, p16, p17, p18, p19, p20, p21, p22, nrow = 5, ncol = 5, common.legend = TRUE, legend = 'bottom')
+dev.off()
+
+```
+
+```{r dif exp analysis}
+dds_rpkm <- DESeqDataSetFromMatrix(countData = round(rpkm_df),
+                              colData = coldata,
+                              design = ~ condition)
+dds_rpkm <- DESeq(dds_rpkm)
+res_rpkm = results(dds_rpkm,alpha=0.05)
+
+summary(res_rpkm)
+
+dds2_rpkm <- DESeqDataSetFromMatrix(countData = round(rpkm_df),
+                              colData = coldata,
+                              design = ~ sex + condition)
+dds2_rpkm <- DESeq(dds2_rpkm)
+res2_rpkm = results(dds2_rpkm,alpha=0.05)
+
+summary(res2_rpkm)
+
+row.names(res_rpkm[order(res_rpkm$pvalue)[1:29],])
+
+hist(res_rpkm$pvalue)
+```
